@@ -1,0 +1,215 @@
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+enum UserRole {
+  ADMIN
+  TEST_CREATOR
+  PARTICIPANT
+}
+
+enum AssessmentStatus {
+  DRAFT
+  ACTIVE
+  ARCHIVED
+}
+
+enum QuestionType {
+  SINGLE_CHOICE
+  MULTIPLE_CHOICE
+  TRUE_FALSE
+  SHORT_ANSWER
+  LONG_ANSWER
+}
+
+enum AttemptStatus {
+  IN_PROGRESS
+  COMPLETED
+  EXPIRED
+  ABANDONED
+}
+
+model User {
+  id           String         @id @default(uuid())
+  email        String         @unique
+  passwordHash String
+  name         String
+  role         UserRole       @default(TEST_CREATOR)
+  avatar       String?
+  organization String?        @default("AssessPulse Org")
+  createdAt    DateTime       @default(now())
+  updatedAt    DateTime       @updatedAt
+
+  assessments   Assessment[]
+  refreshTokens RefreshToken[]
+  auditLogs     AuditLog[]
+
+  @@index([email])
+}
+
+model RefreshToken {
+  id        String    @id @default(uuid())
+  token     String    @unique
+  userId    String
+  user      User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  expiresAt DateTime
+  revokedAt DateTime?
+  createdAt DateTime  @default(now())
+
+  @@index([userId])
+  @@index([token])
+}
+
+model Assessment {
+  id                      String           @id @default(uuid())
+  title                   String
+  description             String           @default("")
+  category                String           @default("General")
+  instructions            String?
+  accessCode              String           @unique
+  status                  AssessmentStatus @default(DRAFT)
+  creatorId               String
+  creator                 User             @relation(fields: [creatorId], references: [id], onDelete: Cascade)
+  
+  timeLimitMinutes        Int              @default(0)
+  passingScorePercentage  Int              @default(70)
+  maxAttempts             Int              @default(1)
+  startDate               DateTime?
+  endDate                 DateTime?
+
+  shuffleQuestions        Boolean          @default(false)
+  shuffleOptions          Boolean          @default(false)
+  showImmediateResults    Boolean          @default(true)
+  allowAnswerReview       Boolean          @default(true)
+  requireParticipantEmail Boolean          @default(true)
+  requireParticipantId    Boolean          @default(false)
+  enableAntiCheatWarnings Boolean          @default(true)
+
+  createdAt               DateTime         @default(now())
+  updatedAt               DateTime         @updatedAt
+
+  questions Question[]
+  attempts  AssessmentAttempt[]
+
+  @@index([creatorId])
+  @@index([accessCode])
+  @@index([status])
+}
+
+model Question {
+  id           String       @id @default(uuid())
+  assessmentId String
+  assessment   Assessment   @relation(fields: [assessmentId], references: [id], onDelete: Cascade)
+  text         String
+  type         QuestionType
+  marks        Int          @default(1)
+  order        Int          @default(0)
+  explanation  String?
+  isRequired   Boolean      @default(true)
+  createdAt    DateTime     @default(now())
+  updatedAt    DateTime     @updatedAt
+
+  options QuestionOption[]
+  answers AttemptAnswer[]
+
+  @@index([assessmentId])
+  @@index([order])
+}
+
+model QuestionOption {
+  id         String   @id @default(uuid())
+  questionId String
+  question   Question @relation(fields: [questionId], references: [id], onDelete: Cascade)
+  text       String
+  isCorrect  Boolean  @default(false)
+  order      Int      @default(0)
+  createdAt  DateTime @default(now())
+  updatedAt  DateTime @updatedAt
+
+  @@index([questionId])
+}
+
+model Participant {
+  id           String   @id @default(uuid())
+  email        String
+  name         String
+  studentId    String?
+  organization String?
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+
+  attempts AssessmentAttempt[]
+
+  @@index([email])
+  @@index([studentId])
+}
+
+model AssessmentAttempt {
+  id               String        @id @default(uuid())
+  assessmentId     String
+  assessment       Assessment    @relation(fields: [assessmentId], references: [id], onDelete: Cascade)
+  participantId    String
+  participant      Participant   @relation(fields: [participantId], references: [id], onDelete: Cascade)
+  status           AttemptStatus @default(IN_PROGRESS)
+  startedAt        DateTime      @default(now())
+  submittedAt      DateTime?
+  expiresAt        DateTime?
+  timeSpentSeconds Int           @default(0)
+  totalMarks       Int           @default(0)
+  earnedMarks      Int           @default(0)
+  scorePercentage  Float         @default(0)
+  isPassed         Boolean       @default(false)
+  tabSwitchCount   Int           @default(0)
+  ipAddress        String?
+  userAgent        String?
+  createdAt        DateTime      @default(now())
+  updatedAt        DateTime      @updatedAt
+
+  answers AttemptAnswer[]
+
+  @@index([assessmentId])
+  @@index([participantId])
+  @@index([status])
+}
+
+model AttemptAnswer {
+  id                String            @id @default(uuid())
+  attemptId         String
+  attempt           AssessmentAttempt @relation(fields: [attemptId], references: [id], onDelete: Cascade)
+  questionId        String
+  question          Question          @relation(fields: [questionId], references: [id], onDelete: Cascade)
+  selectedOptionIds String[]          @default([])
+  textAnswer        String?
+  isCorrect         Boolean           @default(false)
+  marksAwarded      Int               @default(0)
+  isMarkedForReview Boolean           @default(false)
+  answeredAt        DateTime          @default(now())
+  createdAt         DateTime          @default(now())
+  updatedAt         DateTime          @updatedAt
+
+  @@unique([attemptId, questionId])
+  @@index([attemptId])
+  @@index([questionId])
+}
+
+model AuditLog {
+  id         String   @id @default(uuid())
+  userId     String?
+  user       User?    @relation(fields: [userId], references: [id], onDelete: SetNull)
+  action     String
+  entityType String
+  entityId   String?
+  details    Json?
+  ipAddress  String?
+  userAgent  String?
+  createdAt  DateTime @default(now())
+
+  @@index([userId])
+  @@index([entityType, entityId])
+  @@index([action])
+}
